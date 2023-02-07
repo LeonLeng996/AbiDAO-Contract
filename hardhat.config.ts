@@ -7,6 +7,7 @@ import * as dotenv from 'dotenv'
 dotenv.config({ path: __dirname + '/.env.local' })
 
 const GOERLI_PRIVATE_KEY = ''
+const ETHERSCAN_API_KEY = ''
 
 
 const config: HardhatUserConfig = {
