@@ -35,6 +35,7 @@ contract DaoNft is ERC721A, Owned {
     }
 
     DaoCredit public memberBalance;
+    address public memberGovern = address(0);
 
     Applicant[5] internal curApplicantDetail;
     NftParam public nftSetting;
@@ -53,6 +54,7 @@ contract DaoNft is ERC721A, Owned {
 
     bool public genesising = false;
     bool public paused = false;
+    bool public spawn_restart = true;
 
     uint256 private mintCode;
     uint256 private spawnCode;
@@ -80,12 +82,14 @@ contract DaoNft is ERC721A, Owned {
         nftSetting.spawn_cost = 100 * 10**3;
 
         for (uint8 i = 0; i < 5; i++) {
-            curApplicantDetail[i].approved = false;
+            curApplicantDetail[i].approved = true;
             curApplicantDetail[i].pending = false;
             curApplicantDetail[i].spawn_support_num = 0;
             curApplicantDetail[i].name = '';
-            curApplicantDetail[i].applicant_owner = address(0);
+            curApplicantDetail[i].applicant_owner = owner;
         }
+
+        spawn_restart = true;
     }
 
     function _baseURI() internal view virtual override returns (string memory) {
@@ -124,7 +128,7 @@ contract DaoNft is ERC721A, Owned {
     function approveMember(address _to) public onlyOwner returns (uint256) {
         require(!paused, 'the contract is paused');
         // require(!genesising, 'someone is genesising');
-        // require(addressMember[_to].approved == false, 'approve member need to be inactived');
+        require(addressMember[_to].approved == false, 'approve member need to be inactived');
 
         uint256 supply = totalSupply();
         require(supply + 1 <= maxSupply, 'max NFT limit exceeded');
@@ -145,7 +149,7 @@ contract DaoNft is ERC721A, Owned {
     function mintOneNew(address _to, string memory memberName) public returns (uint256) {
         require(!paused, 'the contract is paused');
         require(addressMember[_to].approved == true, 'member need to be actived');
-        require(addressMember[_to].memberTokenId == 0, 'member has already be minted');
+        require(addressMember[_to].memberTokenId == 0 || _to==owner, 'member has already be minted');
 
         uint256 supply = totalSupply();
         require(supply + 1 <= maxSupply, 'max NFT limit exceeded');
@@ -215,6 +219,10 @@ contract DaoNft is ERC721A, Owned {
         return address(memberBalance);
     }
 
+    function getMemberGovern() public view returns (address addrGovern) {
+        return address(memberGovern);
+    }
+
     function getMemberTokenId(address _to) public view returns (uint256) {
         require(_to != address(0), 'to is the zero address');
         return addressMember[_to].memberTokenId;
@@ -223,7 +231,6 @@ contract DaoNft is ERC721A, Owned {
     function applyNft(string memory _name) public returns (uint256) {
         require(!paused, 'the contract is paused');
         require(addressMember[msg.sender].approved == false, 'apply member need to be inactived');
-        // require(curApplicantDetail.pending == false, 'someone is applying the member, pending');
 
         ///register the applying
         bool member_exist = false;
@@ -242,6 +249,7 @@ contract DaoNft is ERC721A, Owned {
 
         require(member_exist == false, 'you already apply ');
         require(pending_amount < 5, 'apply out of amount limit for this time');
+        require(first_found_index < 5, 'first out of limit for this time');
 
         curApplicantDetail[first_found_index].applicant_owner = msg.sender;
         curApplicantDetail[first_found_index].approved = false;
@@ -254,20 +262,12 @@ contract DaoNft is ERC721A, Owned {
 
         indexSpawn++;
 
-        memberBalance.burnSpawnSync(
-            curApplicantDetail[first_found_index].applicant_owner,
-            spawnCode,
-            msg.sender,
-            nftSetting.spawn_cost
-        );
-
         emit ApplyNftCode(msg.sender, spawnCode);
 
         return indexSpawn;
     }
 
     function spawn() public returns (uint256) {
-        // require(curApplicantDetail.pending == true && curApplicantDetail.approved == false, 'no applying NFT request');
         require(addressMember[msg.sender].approved == true, 'sender need to be actived');
         require(addressMember[msg.sender].last_spawn_index < indexSpawn, 'you already spawned this NFT');
 
@@ -290,10 +290,13 @@ contract DaoNft is ERC721A, Owned {
 
             addressMintedBalance[curApplicantDetail[0].applicant_owner]++;
             _safeMint(curApplicantDetail[0].applicant_owner, maxMintAmount);
+            uint256 newTokenId = _tokenIds.current();
+            addressMember[curApplicantDetail[0].applicant_owner].memberTokenId = newTokenId;
             addressMember[curApplicantDetail[0].applicant_owner].approved = true;
             addressMember[curApplicantDetail[0].applicant_owner].name = curApplicantDetail[0].name;
 
             memberAmount++;
+            _tokenIds.increment();
         }
 
         emit SpawnAgree(msg.sender, spawnAgree[0].length);
@@ -302,7 +305,6 @@ contract DaoNft is ERC721A, Owned {
     }
 
     function spawnMulti(address _to) public returns (uint256) {
-        // require(curApplicantDetail.pending == true && curApplicantDetail.approved == false, 'no applying NFT request');
         require(addressMember[msg.sender].approved == true, 'sender need to be actived');
         // require(addressMember[msg.sender].last_spawn_index < indexSpawn, 'you already spawned this NFT');
 
@@ -357,10 +359,15 @@ contract DaoNft is ERC721A, Owned {
                 addressMintedBalance[curApplicantDetail[found_index].applicant_owner]++;
 
                 _safeMint(curApplicantDetail[found_index].applicant_owner, maxMintAmount);
+
+                uint256 newTokenId = _tokenIds.current();
+                addressMember[curApplicantDetail[found_index].applicant_owner].memberTokenId = newTokenId;
+
                 addressMember[curApplicantDetail[found_index].applicant_owner].approved = true;
                 addressMember[curApplicantDetail[found_index].applicant_owner].name = curApplicantDetail[found_index].name;
 
                 memberAmount++;
+                _tokenIds.increment();
             }
         }
 
@@ -396,16 +403,39 @@ contract DaoNft is ERC721A, Owned {
         require(addressMember[msg.sender].approved == true, 'sender need to be actived');
         require(addressMember[msg.sender].last_spawn_index < indexSpawn, 'you already spawned this NFT');
 
-        if (spawnAgree[0].length > 0) {
-            memberBalance.burnSpawnSync(curApplicantDetail[0].applicant_owner, spawnCode, msg.sender, nftSetting.spawn_cost);
-            delete spawnAgree[0][spawnAgree.length - 1];
-            spawnAgree[0].pop();
+        bool member_exist = false;
+        uint8 found_index = 0;
+
+        for (uint8 i = 0; i < 5; i++) {
+            if (curApplicantDetail[i].applicant_owner == _to) {
+                member_exist = true;
+                found_index = i;
+                break;
+            }
         }
 
-        if (spawnAgree.length == 0) {
-            delete spawnAgree[0];
-            curApplicantDetail[0].approved = false;
-            curApplicantDetail[0].pending = false;
+        if (member_exist) {
+            bool spawn_exist = false;
+            for (uint256 i = 0; i < spawnAgree[found_index].length; i++) {
+                if (spawnAgree[found_index][i] == msg.sender) {
+                    spawn_exist = true;
+
+                    for (uint256 pop_pos = i; i < spawnAgree[found_index].length - 1; pop_pos++) {
+                        spawnAgree[found_index][pop_pos] = spawnAgree[found_index][pop_pos + 1];
+                    }
+                    spawnAgree[found_index].pop();
+
+                    memberBalance.burnSpawnSync(curApplicantDetail[0].applicant_owner, spawnCode, msg.sender, nftSetting.spawn_cost);
+
+                    break;
+                }
+            }
+
+            if (spawnAgree.length == 0) {
+                delete spawnAgree[found_index];
+                curApplicantDetail[found_index].approved = false;
+                curApplicantDetail[found_index].pending = false;
+            }
         }
 
         addressMember[msg.sender].last_spawn_index = indexSpawn;
@@ -413,12 +443,15 @@ contract DaoNft is ERC721A, Owned {
         return spawnAgree[0].length;
     }
 
-    function getCurApplicantName() public view returns (string memory _name) {
-        return curApplicantDetail[0].name;
+    function getCurApplicantName(uint256 index) public view returns (string memory _name) {
+        return curApplicantDetail[index].name;
+    }
+    function getCurApplicantAddress(uint256 index) public view returns (address _address) {
+        return curApplicantDetail[index].applicant_owner;
     }
 
-    function getSpawnAgree() public view returns (uint256) {
-        return spawnAgree[0].length;
+    function getSpawnAgree(uint256 index) public view returns (uint256) {
+        return spawnAgree[index].length;
     }
 
     function getMemberNextIndex() public view returns (uint256) {
@@ -487,5 +520,47 @@ contract DaoNft is ERC721A, Owned {
     function upgradeSpawnCost(uint256 new_cost) public onlyOwner {
         nftSetting.spawn_cost = new_cost;
     }
+    function upgradeMemberBalance(address addrBalance) public onlyOwner {
+        memberBalance = DaoCredit(addrBalance);
+    }
+    
+    function upgradeMemberGovern(address addrGovern) public onlyOwner {
+        memberGovern = addrGovern;
+    }
+
+    function GovernIndexSpawn(uint256 index) public returns (uint256) {
+        require(msg.sender == memberGovern, 'only allow for Govern');
+        indexSpawn = index;
+    }
+
+    function GovernApplicantApprove(bool value) public returns (uint256) {
+        require(msg.sender == memberGovern, 'only allow for Govern');
+        curApplicantDetail[0].approved = value;
+    }
+    function GovernMint(address _to, string memory memberName) public returns (uint256) {
+        require(msg.sender == memberGovern, 'only allow for Govern');
+
+        uint256 supply = totalSupply();
+        require(supply + 1 <= maxSupply, 'max NFT limit exceeded');
+
+        uint256 newTokenId = _tokenIds.current();
+
+        addressMintedBalance[_to]++;
+        _safeMint(_to, 1);
+
+        addressMember[_to].memberTokenId = newTokenId;
+        addressMember[_to].name = memberName;
+
+        genesising = false;
+
+        ///Sync to the Credit
+        memberBalance.syncMintMember(mintCode, _to);
+
+        memberAmount++;
+        _tokenIds.increment();
+
+        return newTokenId;
+    }
+
 }
 
